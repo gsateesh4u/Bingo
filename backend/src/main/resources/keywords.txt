@@ -1,0 +1,100 @@
+Someone asks “Is this AI-generated?”
+AI confidently gives the wrong answer.
+AI hallucination so bad it becomes art.
+AI summarizes something completely unrelated.
+AI apologizes for no reason.
+Chatbot loops the same response endlessly.
+Someone says “Let me ask the chatbot…”
+AI-generated image has too many fingers.
+AI-generated picture looks mildly cursed.
+Someone calls AI their ‘new intern.’
+Copilot pops up without being invited.
+Someone claims AI took their job.
+AI makes up statistics that sound real.
+AI rewrites text in Shakespearean English unasked.
+AI writes a haiku no one requested.
+AI suggests clip art from 1998.
+AI-generated diagram looks like spaghetti.
+Someone pretends they understand prompt engineering.
+Someone uses a 10-paragraph prompt.
+Prompt includes ‘YOU MUST FOLLOW MY INSTRUCTIONS.’
+AI ignores half the instructions anyway.
+Someone says “Train it on our data.”
+RAG mentioned but no one knows how it works.
+Acronym overload (LLM, RAG, NLP, TTS, ASR).
+Someone uses AI to answer a question they already know.
+Someone asks AI for legal advice.
+Someone assumes AI can access production data.
+AI mispronounces a common name in TTS.
+Someone blames ChatGPT for their mistake.
+AI gives dramatic responses to simple questions.
+Someone says “AI can do this easier,” then it can’t.
+Someone says “This should be easy for AI.”
+Manager says “Use AI to work smarter.”
+Team meeting derails into AI ethics debate.
+AI added to a slide deck just to sound modern.
+Someone says “Did AI write that?”
+AI-generated meeting notes miss half the meeting.
+AI answers faster than a teammate.
+Someone says “We need more automation.”
+AI rewrites your message too formally.
+Someone claims AI is replacing PowerPoint.
+Someone calls AI ‘our smartest team member.’
+Text-to-speech voice sounds mildly haunted.
+AI misunderstands a very obvious question.
+Someone copies a prompt from YouTube.
+Someone uses ChatGPT to name their project.
+Someone says “Make it more human” to AI.
+AI generates a weirdly cheerful error message.
+Someone says “I swear AI used to be better.”
+AI generates an image that looks like a meme.
+AI outputs a response with way too much confidence.
+Someone uses AI for something wildly overcomplicated.
+Someone uses AI for something incredibly simple.
+Someone tries to convince everyone AI is sentient.
+Someone claims AI is reading their thoughts.
+AI suggests a solution that already failed before.
+Someone says “The model is learning!” incorrectly.
+AI keeps giving outdated info.
+Someone’s AI tool logs them out mid-sentence.
+Someone tries to use an AI that is down.
+Someone reads AI output word-for-word as their idea.
+Someone pastes AI text without editing.
+“This looks AI-generated” becomes an insult.
+AI produces a list that is way too long.
+AI produces a list that is way too short.
+Someone says “I’ll just ask AI” instead of Googling.
+AI mixes up people’s names in summaries.
+Someone uses AI to write a message and it sounds robotic.
+AI adds a metaphor nobody needed.
+Someone says “Regenerate response” like a chant.
+AI hallucinates a product that doesn’t exist.
+Someone finds an AI-generated typo.
+Someone uses AI to format their resume live.
+AI fix suggestion breaks everything.
+Someone tries 14 prompts to get one sentence.
+Someone argues with AI like it’s a coworker.
+Someone compliments AI as if it can hear them.
+Someone says “AI is judging me.”
+AI generates an unnecessary table.
+Someone’s AI tool suddenly freezes.
+Someone forces AI into a plan where it doesn’t belong.
+Someone says “Let AI handle it” with zero context.
+AI-generated code fails instantly.
+AI-generated code actually works and shocks everyone.
+Someone uses AI to create a joke that isn’t funny.
+AI tries to be funny but isn’t.
+Someone calls AI “buddy.”
+Someone says “AI is gaslighting me.”
+Someone uses AI to rewrite an email three times.
+AI chooses the worst possible synonyms.
+Someone uses AI to rewrite AI text.
+Someone calls AI output “close enough.”
+Someone claims AI replaced their creativity.
+AI-generated answer sparks a debate.
+AI forgets tons of context mid-chat.
+Someone gives AI emotional support.
+AI refuses to answer something simple.
+Someone uses AI during the meeting.
+AI writes something overly motivational.
+Someone ends with “Thanks AI” unironically.
