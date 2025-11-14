@@ -1,0 +1,76 @@
+.scorecard {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 14px;
+  border-radius: 20px;
+  box-shadow: 0 16px 40px rgba(3, 32, 17, 0.25);
+}
+
+.scorecard--compact {
+  padding: 10px;
+  grid-template-columns: repeat(5, minmax(110px, 1fr));
+}
+
+.scorecard__header {
+  text-align: center;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.scorecard__cell {
+  border: none;
+  border-radius: 16px;
+  font-size: 1rem;
+  min-height: 110px;
+  padding: 0.75rem;
+  text-align: left;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  background: #fff8f0;
+  color: #1b2b1b;
+  transition: all 0.2s ease;
+  line-height: 1.4;
+  box-shadow: inset 0 0 0 1px rgba(182, 143, 92, 0.45);
+}
+
+.scorecard--compact .scorecard__cell {
+  min-height: 90px;
+  font-size: 0.92rem;
+  padding: 0.6rem;
+}
+
+.scorecard__cell--free {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.scorecard__cell--called {
+  box-shadow: inset 0 0 0 3px var(--accent);
+  background: #ffe0d7;
+  color: #7b1b1b;
+}
+
+.scorecard__cell--marked {
+  background: var(--accent);
+  color: #fff;
+  transform: scale(1.04);
+}
+
+.scorecard__cell--interactive:not(:disabled) {
+  cursor: pointer;
+}
+
+.scorecard__cell--interactive:not(:disabled):hover {
+  box-shadow: inset 0 0 0 3px var(--accent);
+}
+
+.scorecard__cell-text {
+  display: block;
+  width: 100%;
+  color: inherit;
+  word-break: break-word;
+  text-align: left;
+}

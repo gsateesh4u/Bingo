@@ -1,0 +1,50 @@
+.wheel {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.wheel__rim {
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  background: radial-gradient(circle at top, var(--accent), var(--accent-dark));
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.25);
+  transition: transform 0.3s ease;
+}
+
+.wheel__rim--spinning {
+  animation: spin 1.2s ease-out;
+}
+
+.wheel__value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 0 1.2rem;
+  line-height: 1.3;
+}
+
+.wheel__status {
+  margin-top: 0.4rem;
+  font-size: 0.95rem;
+  opacity: 0.8;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  70% {
+    transform: rotate(420deg) scale(1.08);
+  }
+  100% {
+    transform: rotate(450deg) scale(1);
+  }
+}

@@ -1,0 +1,562 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { api } from './api';
+import { ClaimType, GameState, Player, Scorecard } from './types';
+import { ScorecardGrid, FREE_SPACE_TEXT } from './components/ScorecardGrid';
+import { NumberWheel } from './components/NumberWheel';
+import './App.css';
+
+type Mode = 'player' | 'host';
+const PLAYER_STORAGE_KEY = 'team-bingo-player-id';
+const HOST_ACCESS_STORAGE_KEY = 'team-bingo-host-access';
+const HOST_ACCESS_KEY = process.env.REACT_APP_HOST_ACCESS_KEY ?? 'TEAM-HOST-KEY';
+const HOST_IDENTIFIER = process.env.REACT_APP_HOST_IDENTIFIER ?? 'HOST-LEAD-001';
+
+export default function App() {
+  const [mode, setMode] = useState<Mode>('player');
+  const [hostSecret, setHostSecret] = useState<string | null>(() => {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+    return localStorage.getItem(HOST_ACCESS_STORAGE_KEY);
+  });
+  const [hostKeyInput, setHostKeyInput] = useState('');
+  const [hostKeyError, setHostKeyError] = useState<string | null>(null);
+  const hostUnlocked = hostSecret === HOST_ACCESS_KEY;
+
+  const changeMode = (next: Mode) => {
+    setMode(next);
+    if (next === 'player') {
+      setHostKeyError(null);
+    }
+  };
+
+  const unlockHost = () => {
+    const trimmed = hostKeyInput.trim();
+    if (trimmed === HOST_ACCESS_KEY) {
+        localStorage.setItem(HOST_ACCESS_STORAGE_KEY, trimmed);
+        setHostSecret(trimmed);
+      setHostKeyInput('');
+      setHostKeyError(null);
+    } else {
+      setHostKeyError('Invalid host key. Check with the event owner and try again.');
+    }
+  };
+
+  const lockHost = () => {
+    localStorage.removeItem(HOST_ACCESS_STORAGE_KEY);
+    setHostSecret(null);
+    setHostKeyInput('');
+  };
+
+  return (
+    <div className="app">
+      <header className="app__header">
+        <div>
+          <p className="app__eyebrow app__eyebrow--bright">CETS BINGO</p>
+          <h1>Bingo Control Center</h1>
+          <p className="app__subtitle">Share this page with teammates to join and play together.</p>
+        </div>
+        <div className="app__mode-toggle">
+          <button className={mode === 'player' ? 'active' : ''} onClick={() => changeMode('player')}>
+            Player mode
+          </button>
+          <button className={mode === 'host' ? 'active' : ''} onClick={() => changeMode('host')}>
+            Host mode
+          </button>
+        </div>
+      </header>
+      {mode === 'player' ? (
+        <PlayerView />
+      ) : hostUnlocked && hostSecret ? (
+        <HostView hostIdentifier={HOST_IDENTIFIER} hostSecret={hostSecret} onLockHost={lockHost} />
+      ) : (
+        <HostUnlockPanel
+          hostIdentifier={HOST_IDENTIFIER}
+          value={hostKeyInput}
+          error={hostKeyError}
+          onChange={(value) => {
+            setHostKeyInput(value);
+            setHostKeyError(null);
+          }}
+          onSubmit={unlockHost}
+        />
+      )}
+    </div>
+  );
+}
+
+function PlayerView() {
+  const [playerId, setPlayerId] = useState<string | null>(() => localStorage.getItem(PLAYER_STORAGE_KEY));
+  const [playerIdInput, setPlayerIdInput] = useState(() => localStorage.getItem(PLAYER_STORAGE_KEY) ?? '');
+  const [displayNameInput, setDisplayNameInput] = useState('');
+  const [player, setPlayer] = useState<Player | null>(null);
+  const [availableCards, setAvailableCards] = useState<Scorecard[]>([]);
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const [gameState, setGameState] = useState<GameState | null>(null);
+  const [markedEntries, setMarkedEntries] = useState<Set<string>>(new Set([FREE_SPACE_TEXT]));
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const refreshGameState = useCallback(async () => {
+    try {
+      const state = await api.getGameState();
+      setGameState(state);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshGameState();
+    const interval = setInterval(refreshGameState, 4000);
+    return () => clearInterval(interval);
+  }, [refreshGameState]);
+
+  useEffect(() => {
+    if (!playerId) {
+      return;
+    }
+    let cancelled = false;
+    api
+      .getPlayer(playerId)
+      .then((data) => {
+        if (!cancelled) {
+          setPlayer(data);
+          setMarkedEntries(new Set([FREE_SPACE_TEXT]));
+        }
+      })
+      .catch((err) => setError(err.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [playerId]);
+
+  const joinGame = async () => {
+    try {
+      setLoading(true);
+      const created = await api.createPlayer(displayNameInput || undefined);
+      localStorage.setItem(PLAYER_STORAGE_KEY, created.playerId);
+      setPlayerId(created.playerId);
+      setPlayerIdInput(created.playerId);
+      setPlayer(created);
+      setMessage(`Welcome ${created.displayName}! Pick a scorecard to get started.`);
+      setDisplayNameInput('');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const showCards = async () => {
+    try {
+      const result = await api.getScorecards();
+      setAvailableCards(result.scorecards);
+      setPreviewIndex(0);
+      setMessage('Tap one card to lock it in.');
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const selectCard = async (cardId: string) => {
+    if (!playerId) return;
+    try {
+      const updated = await api.selectScorecard(playerId, cardId);
+      setPlayer(updated);
+      setAvailableCards([]);
+      setPreviewIndex(0);
+      setMarkedEntries(new Set([FREE_SPACE_TEXT]));
+      setMessage('Card locked in! Wait for host to start the round.');
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const applyPlayerIdInput = () => {
+    const trimmed = playerIdInput.trim();
+    if (!trimmed) {
+      setError('Enter a player ID to load your card.');
+      return;
+    }
+    localStorage.setItem(PLAYER_STORAGE_KEY, trimmed);
+    setPlayerId(trimmed);
+    setMessage('Player ID updated. Loading your data...');
+  };
+
+  const toggleEntry = (value: string) => {
+    if (value === FREE_SPACE_TEXT) return;
+    setMarkedEntries((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) {
+        next.delete(value);
+      } else {
+        next.add(value);
+      }
+      return next;
+    });
+  };
+
+  const cyclePreview = (offset: number) => {
+    setPreviewIndex((current) => {
+      if (availableCards.length === 0) return 0;
+      const next = (current + offset + availableCards.length) % availableCards.length;
+      return next;
+    });
+  };
+
+  const currentPreview = availableCards[previewIndex];
+
+  const sendClaim = async (type: ClaimType) => {
+    if (!playerId) return;
+    try {
+      const result = await api.claimWin(playerId, type);
+      setMessage(result.message);
+      refreshGameState();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const joined = Boolean(playerId);
+  const hasCard = Boolean(player?.scorecard);
+
+  return (
+    <section className="panel">
+      <div className="panel__header">
+        <h2>Player lobby</h2>
+        <p>Share the link, everyone joins here, and the host drives the wheel.</p>
+      </div>
+      {message && (
+        <div className="alert alert--info" role="status">
+          {message}
+        </div>
+      )}
+      {error && (
+        <div className="alert alert--error" role="alert">
+          {error}
+        </div>
+      )}
+      {!joined && (
+        <div className="card">
+          <h3>Claim your seat</h3>
+          <p>Enter an optional display name so the host can recognize you.</p>
+          <div className="form-row">
+            <input
+              placeholder="Display name"
+              value={displayNameInput}
+              onChange={(event) => setDisplayNameInput(event.target.value)}
+            />
+            <button onClick={joinGame} disabled={loading}>
+              Get my player ID
+            </button>
+          </div>
+        </div>
+      )}
+
+      {joined && (
+        <>
+          <div className="card">
+            <h3>Your player ID</h3>
+            <p className="muted small">Paste your ID here to switch devices or reload your state.</p>
+            <div className="form-row form-row--stack">
+              <input
+                value={playerIdInput}
+                placeholder="e.g. 123e4567-e89b-12d3-a456-426614174000"
+                onChange={(event) => setPlayerIdInput(event.target.value)}
+              />
+              <button onClick={applyPlayerIdInput}>Use this ID</button>
+            </div>
+            {playerId && (
+              <div className="card__row">
+                <div>
+                  <p className="muted">Active ID</p>
+                  <code>{playerId}</code>
+                </div>
+                <div>
+                  <p className="muted">Name</p>
+                  <strong>{player?.displayName ?? 'Loading...'}</strong>
+                </div>
+              </div>
+            )}
+            <button className="secondary" onClick={showCards}>
+              Show random scorecards
+            </button>
+          </div>
+
+          {availableCards.length > 0 && currentPreview && (
+            <div className="card selection-grid">
+              <h3>Pick a scorecard</h3>
+              <p className="muted">Use the arrows to preview cards, then lock in your favorite.</p>
+              <div className="card-carousel">
+                <button
+                  type="button"
+                  className="carousel-btn"
+                  onClick={() => cyclePreview(-1)}
+                  disabled={availableCards.length <= 1}
+                  aria-label="Previous card"
+                >
+                  ‹
+                </button>
+                <div className="card-carousel__viewport">
+                  <ScorecardGrid card={currentPreview} />
+                  <div className="card-carousel__indicator">
+                    {previewIndex + 1} / {availableCards.length}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="carousel-btn"
+                  onClick={() => cyclePreview(1)}
+                  disabled={availableCards.length <= 1}
+                  aria-label="Next card"
+                >
+                  ›
+                </button>
+              </div>
+              <div className="card-carousel__actions">
+                <button onClick={() => selectCard(currentPreview.id)}>Select this card</button>
+                <button className="secondary" onClick={showCards}>
+                  Refresh cards
+                </button>
+              </div>
+            </div>
+          )}
+
+          {hasCard && player?.scorecard && (
+            <div className="card">
+              <h3>Your card</h3>
+              <ScorecardGrid
+                card={player.scorecard}
+                calledEntries={gameState?.calledPhrases}
+                markedEntries={markedEntries}
+                onToggle={toggleEntry}
+              />
+              <p className="muted small">
+                Tap a square when you hear it. Called phrases glow automatically, and the center is always free.
+              </p>
+              <div className="claim-controls">
+                <button onClick={() => sendClaim('ROW')}>Row</button>
+                <button onClick={() => sendClaim('COLUMN')}>Column</button>
+                <button onClick={() => sendClaim('DIAGONAL')}>Diagonal</button>
+                <button onClick={() => sendClaim('FULL_CARD')}>Full card</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <GameStats gameState={gameState} title="Live game feed" />
+    </section>
+  );
+}
+
+interface HostViewProps {
+  hostIdentifier: string;
+  hostSecret: string;
+  onLockHost: () => void;
+}
+
+function HostView({ hostIdentifier, hostSecret, onLockHost }: HostViewProps) {
+  const [gameState, setGameState] = useState<GameState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [spinning, setSpinning] = useState(false);
+  const [dropPlayers, setDropPlayers] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const state = await api.getGameState();
+      setGameState(state);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, 2500);
+    return () => clearInterval(interval);
+  }, [refresh]);
+
+  const startGame = async () => {
+    try {
+      const state = await api.startGame(hostSecret);
+      setGameState(state);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const drawNumber = async () => {
+    try {
+      setSpinning(true);
+      const state = await api.drawNumber(hostSecret);
+      setGameState(state);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setTimeout(() => setSpinning(false), 800);
+    }
+  };
+
+  const resetGame = async () => {
+    try {
+      const state = await api.resetGame(dropPlayers, hostSecret);
+      setGameState(state);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  return (
+    <section className="panel">
+      <div className="panel__header">
+        <h2>Host controls</h2>
+        <p>Launch the wheel, call phrases, and keep track of the first three full-card winners.</p>
+      </div>
+      {error && (
+        <div className="alert alert--error" role="alert">
+          {error}
+        </div>
+      )}
+      <div className="host-id">
+        <div>
+          <p className="muted small">Host identifier</p>
+          <code>{hostIdentifier}</code>
+        </div>
+        <button className="ghost" onClick={onLockHost}>
+          Use a different host key
+        </button>
+      </div>
+      <div className="host-grid">
+        <div className="card host-main">
+          <NumberWheel gameState={gameState} spinning={spinning} />
+          <div className="host-actions">
+            <button onClick={startGame}>Start round</button>
+            <button onClick={drawNumber} disabled={gameState?.status !== 'IN_PROGRESS'}>
+              Draw next number
+            </button>
+            <button className="secondary" onClick={resetGame}>
+              Reset round
+            </button>
+          </div>
+          <label className="inline-toggle">
+            <input
+              type="checkbox"
+              checked={dropPlayers}
+              onChange={(event) => setDropPlayers(event.target.checked)}
+            />
+            Remove all players on reset
+          </label>
+          <p className="muted small">
+            Start &rarr; Draw to spin phrases. Reset clears the board; optional toggle wipes player cards.
+          </p>
+        </div>
+        <div className="card host-feed">
+          <h3>Called phrases ({gameState?.calledPhrases.length ?? 0})</h3>
+          <div className="called-grid">
+            {gameState && gameState.calledPhrases.length > 0 ? (
+              gameState.calledPhrases.map((value) => <span key={value}>{value}</span>)
+            ) : (
+              <p className="muted">Waiting for the first call...</p>
+            )}
+          </div>
+        </div>
+      </div>
+      <GameStats gameState={gameState} title="Round overview" />
+    </section>
+  );
+}
+
+interface HostUnlockPanelProps {
+  hostIdentifier: string;
+  value: string;
+  error: string | null;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+}
+
+function HostUnlockPanel({ hostIdentifier, value, error, onChange, onSubmit }: HostUnlockPanelProps) {
+  return (
+    <section className="panel">
+      <div className="panel__header">
+        <h2>Host sign in</h2>
+        <p>
+          Host mode is protected. Enter the private host key to unlock controls for <code>{hostIdentifier}</code>.
+        </p>
+      </div>
+      <div className="card">
+        <h3>Host key</h3>
+        <p className="muted">Only share this with the meeting facilitator.</p>
+        <div className="form-row">
+          <input
+            type="password"
+            placeholder="Enter host key"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          <button onClick={onSubmit}>Unlock host view</button>
+        </div>
+        {error && (
+          <p className="alert alert--error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+interface GameStatsProps {
+  gameState: GameState | null;
+  title: string;
+}
+
+function GameStats({ gameState, title }: GameStatsProps) {
+  const winners = gameState?.winners ?? [];
+  const formattedWinners = useMemo(
+    () =>
+      winners.map((winner) => ({
+        ...winner,
+        time: new Date(winner.timestamp).toLocaleTimeString(),
+      })),
+    [winners]
+  );
+
+  return (
+    <div className="card">
+      <h3>{title}</h3>
+      <div className="stats-grid">
+        <div>
+          <p className="muted">Status</p>
+          <strong>{(gameState?.status ?? 'WAITING_FOR_HOST').replaceAll('_', ' ')}</strong>
+        </div>
+        <div>
+          <p className="muted">Players joined</p>
+          <strong>{gameState?.playerCount ?? 0}</strong>
+        </div>
+        <div>
+          <p className="muted">Phrases remaining</p>
+          <strong>{gameState?.remainingCalls ?? 0}</strong>
+        </div>
+      </div>
+      <div className="winners">
+        <h4>Winners</h4>
+        {formattedWinners.length === 0 && <p className="muted">No winners yet.</p>}
+        {formattedWinners.length > 0 && (
+          <ul>
+            {formattedWinners.map((winner) => (
+              <li key={`${winner.playerId}-${winner.claimType}-${winner.timestamp}`}>
+                <strong>{winner.displayName}</strong> - {winner.claimType.replaceAll('_', ' ')} at {winner.time}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
