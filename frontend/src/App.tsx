@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api';
-import { ClaimType, GameState, Player, Scorecard } from './types';
+import {
+  CallDetail,
+  ClaimType,
+  GameState,
+  Player,
+  PlayerDirectoryEntry,
+  Scorecard,
+} from './types';
 import { ScorecardGrid, FREE_SPACE_TEXT } from './components/ScorecardGrid';
 import { NumberWheel } from './components/NumberWheel';
+import { useShuffleSound } from './hooks/useShuffleSound';
 import './App.css';
 
 type Mode = 'player' | 'host';
@@ -10,6 +18,8 @@ const PLAYER_STORAGE_KEY = 'team-bingo-player-id';
 const HOST_ACCESS_STORAGE_KEY = 'team-bingo-host-access';
 const HOST_ACCESS_KEY = process.env.REACT_APP_HOST_ACCESS_KEY ?? 'TEAM-HOST-KEY';
 const HOST_IDENTIFIER = process.env.REACT_APP_HOST_IDENTIFIER ?? 'HOST-LEAD-001';
+const HOST_VOICE_STORAGE_KEY = 'team-bingo-host-voice';
+const WHEEL_SOUND_STORAGE_KEY = 'team-bingo-wheel-sound';
 const CLAIM_OPTIONS: { value: ClaimType; label: string }[] = [
   { value: 'DIAGONAL', label: 'Diagonal' },
   { value: 'COLUMN_1', label: 'First column' },
@@ -391,6 +401,8 @@ interface HostViewProps {
   onLockHost: () => void;
 }
 
+const SPIN_DURATION_MS = 2600;
+
 function HostView({ hostIdentifier, hostSecret, onLockHost }: HostViewProps) {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -401,6 +413,25 @@ function HostView({ hostIdentifier, hostSecret, onLockHost }: HostViewProps) {
   const [inspectionMessage, setInspectionMessage] = useState<string | null>(null);
   const [inspectionError, setInspectionError] = useState<string | null>(null);
   const [claimSelection, setClaimSelection] = useState<ClaimType>('DIAGONAL');
+  const [playerDirectory, setPlayerDirectory] = useState<PlayerDirectoryEntry[]>([]);
+  const [voiceEnabled, setVoiceEnabled] = useState(() => {
+    if (typeof window === 'undefined') {
+      return true;
+    }
+    return localStorage.getItem(HOST_VOICE_STORAGE_KEY) !== 'off';
+  });
+  const [wheelSoundEnabled, setWheelSoundEnabled] = useState(() => {
+    if (typeof window === 'undefined') {
+      return true;
+    }
+    return localStorage.getItem(WHEEL_SOUND_STORAGE_KEY) !== 'off';
+  });
+  const detail = gameState?.currentCallDetail ?? null;
+  const [modalDetail, setModalDetail] = useState<CallDetail | null>(null);
+  const [secondaryDetail, setSecondaryDetail] = useState<CallDetail | null>(null);
+  const spokenRef = useRef<string | null>(null);
+  const pendingDetailRef = useRef<CallDetail | null>(null);
+  const { playShuffle, stopShuffle } = useShuffleSound();
 
   const refresh = useCallback(async () => {
     try {
@@ -411,11 +442,37 @@ function HostView({ hostIdentifier, hostSecret, onLockHost }: HostViewProps) {
     }
   }, []);
 
+  const fetchDirectory = useCallback(async () => {
+    if (!hostSecret) {
+      return;
+    }
+    try {
+      const result = await api.getPlayerDirectory(hostSecret);
+      setPlayerDirectory(result.players);
+    } catch (err) {
+      setInspectionError((err as Error).message);
+    }
+  }, [hostSecret]);
+
   useEffect(() => {
     refresh();
     const interval = setInterval(refresh, 2500);
     return () => clearInterval(interval);
   }, [refresh]);
+
+  useEffect(() => {
+    fetchDirectory();
+  }, [fetchDirectory]);
+  useEffect(() => () => stopShuffle(), [stopShuffle]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(WHEEL_SOUND_STORAGE_KEY, wheelSoundEnabled ? 'on' : 'off');
+    }
+    if (!wheelSoundEnabled) {
+      stopShuffle();
+    }
+  }, [wheelSoundEnabled, stopShuffle]);
 
   const startGame = async () => {
     try {
@@ -430,13 +487,26 @@ function HostView({ hostIdentifier, hostSecret, onLockHost }: HostViewProps) {
   const drawNumber = async () => {
     try {
       setSpinning(true);
+      setModalDetail(null);
+      pendingDetailRef.current = null;
+      if (wheelSoundEnabled) {
+        playShuffle(SPIN_DURATION_MS);
+      }
       const state = await api.drawNumber(hostSecret);
       setGameState(state);
+      pendingDetailRef.current = state.currentCallDetail ?? null;
       setError(null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setTimeout(() => setSpinning(false), 800);
+      window.setTimeout(() => {
+        stopShuffle();
+        setSpinning(false);
+        if (pendingDetailRef.current) {
+          setModalDetail(pendingDetailRef.current);
+          pendingDetailRef.current = null;
+        }
+      }, SPIN_DURATION_MS);
     }
   };
 
@@ -450,19 +520,23 @@ function HostView({ hostIdentifier, hostSecret, onLockHost }: HostViewProps) {
       setInspectionError(null);
       setClaimSelection('DIAGONAL');
       setInspectionId('');
+      setModalDetail(null);
+      pendingDetailRef.current = null;
+      stopShuffle();
+      setSpinning(false);
+      fetchDirectory();
     } catch (err) {
       setError((err as Error).message);
     }
   };
 
   const loadPlayerForInspection = async () => {
-    const trimmed = inspectionId.trim();
-    if (!trimmed) {
-      setInspectionError('Enter a player ID to inspect.');
+    if (!inspectionId) {
+      setInspectionError('Select a player to inspect.');
       return;
     }
     try {
-      const player = await api.getPlayer(trimmed);
+      const player = await api.getHostPlayer(inspectionId, hostSecret);
       setInspectedPlayer(player);
       setInspectionMessage(`Loaded ${player.displayName}'s card.`);
       setInspectionError(null);
@@ -474,8 +548,7 @@ function HostView({ hostIdentifier, hostSecret, onLockHost }: HostViewProps) {
   };
 
   const recordClaim = async () => {
-    const trimmed = inspectionId.trim();
-    if (!trimmed) {
+    if (!inspectionId) {
       setInspectionError('Load a player before recording a win.');
       return;
     }
@@ -484,7 +557,7 @@ function HostView({ hostIdentifier, hostSecret, onLockHost }: HostViewProps) {
       return;
     }
     try {
-      const result = await api.claimWin(trimmed, claimSelection, hostSecret);
+      const result = await api.claimWin(inspectionId, claimSelection, hostSecret);
       setInspectionMessage(result.message);
       setInspectionError(null);
       await refresh();
@@ -493,135 +566,289 @@ function HostView({ hostIdentifier, hostSecret, onLockHost }: HostViewProps) {
     }
   };
 
+  const closeModal = () => {
+    setModalDetail(null);
+    setSecondaryDetail(null);
+  };
+
+  const speechSupported =
+    typeof window !== 'undefined' &&
+    'speechSynthesis' in window &&
+    typeof window.speechSynthesis !== 'undefined' &&
+    typeof SpeechSynthesisUtterance !== 'undefined';
+
+  const speakDetail = useCallback(
+    (force = false, payload?: CallDetail | null) => {
+      const target = payload ?? detail;
+      if (!target || !speechSupported || !voiceEnabled) {
+        return;
+      }
+      if (!force && spokenRef.current === target.phrase) {
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(`${target.phrase}. ${target.description}`);
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+      spokenRef.current = target.phrase;
+    },
+    [detail, speechSupported, voiceEnabled]
+  );
+
+  useEffect(() => {
+    if (!detail) {
+      spokenRef.current = null;
+      return;
+    }
+    speakDetail();
+  }, [detail?.phrase, speakDetail]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(HOST_VOICE_STORAGE_KEY, voiceEnabled ? 'on' : 'off');
+    }
+    if (!speechSupported) {
+      return;
+    }
+    const activeDetail = modalDetail ?? detail;
+    if (!voiceEnabled) {
+      window.speechSynthesis.cancel();
+    } else if (activeDetail) {
+      speakDetail(true, activeDetail);
+    }
+  }, [voiceEnabled, speechSupported, detail, modalDetail, speakDetail]);
+
   return (
-    <section className="panel">
-      <div className="panel__header">
-        <h2>Host controls</h2>
-        <p>Launch the wheel, call phrases, and verify every winner against the Access roster.</p>
-      </div>
-      {error && (
-        <div className="alert alert--error" role="alert">
-          {error}
+    <>
+      <section className="panel">
+        <div className="panel__header">
+          <h2>Host controls</h2>
+          <p>Launch the wheel, call phrases, and verify every winner against the Access roster.</p>
+        </div>
+        {error && (
+          <div className="alert alert--error" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="host-id">
+          <div>
+            <p className="muted small">Host identifier</p>
+            <code>{hostIdentifier}</code>
+          </div>
+          <button className="ghost" onClick={onLockHost}>
+            Use a different host key
+          </button>
+        </div>
+        <div className="host-grid">
+          <div className="card host-main">
+            <NumberWheel gameState={gameState} spinning={spinning} />
+            <div className="audio-toggle">
+              <p className="muted small">Wheel sound</p>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => setWheelSoundEnabled((value) => !value)}
+              >
+                {wheelSoundEnabled ? 'Turn sound off' : 'Turn sound on'}
+              </button>
+            </div>
+            <div className="host-actions">
+              <button onClick={startGame}>Start round</button>
+              <button onClick={drawNumber} disabled={spinning || gameState?.status !== 'IN_PROGRESS'}>
+                Draw next number
+              </button>
+              <button className="secondary" onClick={resetGame}>
+                Reset round
+              </button>
+            </div>
+            <label className="inline-toggle">
+              <input
+                type="checkbox"
+                checked={dropPlayers}
+                onChange={(event) => setDropPlayers(event.target.checked)}
+              />
+              Remove all players on reset
+            </label>
+            <p className="muted small">
+              Start &rarr; Draw to spin phrases. Reset clears the board; optional toggle wipes player cards.
+            </p>
+          </div>
+          <div className="card host-feed">
+            <h3>Called phrases ({gameState?.calledPhrases.length ?? 0})</h3>
+            <div className="called-grid">
+              {gameState && gameState.calledPhrases.length > 0 ? (
+                gameState.calledPhrases.map((value) => (
+                  <span key={value} className="called-item">
+                    <span>{value}</span>
+                    <button
+                      type="button"
+                      className="info-btn"
+                      onClick={() =>
+                        api
+                          .getPhraseDetail(value)
+                          .then((detail) => {
+                            setSecondaryDetail(detail);
+                            setModalDetail({
+                              phrase: detail.phrase,
+                              title: detail.title,
+                              description: detail.description,
+                              sourceUrl: detail.sourceUrl ?? undefined,
+                            });
+                          })
+                          .catch((err) => setError((err as Error).message))
+                      }
+                    >
+                      ℹ️
+                    </button>
+                  </span>
+                ))
+              ) : (
+                <p className="muted">Waiting for the first call...</p>
+              )}
+            </div>
+          </div>
+          <div className="card host-inspector">
+            <h3>Verify a card</h3>
+            <p className="muted small">
+              Look up any player to overlay their scorecard with the active call sheet. Pick the correct winning pattern
+              and log it for the record.
+            </p>
+            <div className="form-row form-row--stack">
+              <select
+                value={inspectionId}
+                onChange={(event) => {
+                  setInspectionId(event.target.value);
+                  setInspectionMessage(null);
+                  setInspectionError(null);
+                }}
+              >
+                <option value="">Select a player</option>
+                {playerDirectory.map((entry) => {
+                  const statusPieces = [
+                    entry.joined ? 'joined' : null,
+                    entry.hasScorecard ? 'card locked' : null,
+                  ].filter(Boolean);
+                  const status = statusPieces.length > 0 ? ` (${statusPieces.join(' · ')})` : '';
+                  return (
+                    <option key={entry.playerId} value={entry.playerId}>
+                      {entry.displayName}
+                      {status}
+                    </option>
+                  );
+                })}
+              </select>
+              <button onClick={loadPlayerForInspection} disabled={!inspectionId}>
+                Load card
+              </button>
+              <button type="button" className="ghost" onClick={fetchDirectory}>
+                Refresh roster
+              </button>
+            </div>
+            {playerDirectory.length === 0 && (
+              <p className="muted small">No players found yet. Refresh after importing the Access roster.</p>
+            )}
+            {inspectionMessage && (
+              <div className="alert alert--info" role="status">
+                {inspectionMessage}
+              </div>
+            )}
+            {inspectionError && (
+              <div className="alert alert--error" role="alert">
+                {inspectionError}
+              </div>
+            )}
+            {inspectedPlayer ? (
+              <>
+                <div className="host-inspector__meta">
+                  <div>
+                    <p className="muted small">Player</p>
+                    <strong>{inspectedPlayer.displayName}</strong>
+                  </div>
+                  <div>
+                    <p className="muted small">Player ID</p>
+                    <code>{inspectedPlayer.playerId}</code>
+                  </div>
+                </div>
+                {inspectedPlayer.scorecard ? (
+                  <ScorecardGrid
+                    compact
+                    card={inspectedPlayer.scorecard}
+                    calledEntries={gameState?.calledPhrases}
+                  />
+                ) : (
+                  <p className="muted small">This player has not selected a scorecard yet.</p>
+                )}
+              </>
+            ) : (
+              <p className="muted small">Load a player to inspect their scorecard.</p>
+            )}
+            <div className="host-claim">
+              <label>
+                <span>Winning pattern</span>
+                <select
+                  value={claimSelection}
+                  onChange={(event) => setClaimSelection(event.target.value as ClaimType)}
+                >
+                  {CLAIM_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button onClick={recordClaim} disabled={!inspectedPlayer?.scorecard}>
+                Record winner
+              </button>
+            </div>
+          </div>
+        </div>
+        <GameStats gameState={gameState} title="Round overview" />
+      </section>
+      {modalDetail && (
+        <div className="modal" role="dialog" aria-modal="true" aria-labelledby="callModalTitle">
+          <div className="modal__content">
+            <button className="modal__close" onClick={closeModal} aria-label="Close call detail popup">
+              &times;
+            </button>
+            <p className="modal__eyebrow">Next square</p>
+            <h3 id="callModalTitle">{modalDetail.phrase}</h3>
+            <p className="muted">{modalDetail.title}</p>
+            <p>{modalDetail.description}</p>
+            <div className="modal__actions">
+              {modalDetail.sourceUrl && (
+                <a href={modalDetail.sourceUrl} target="_blank" rel="noreferrer">
+                  Learn more
+                </a>
+              )}
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => setVoiceEnabled((value) => !value)}
+                disabled={!speechSupported}
+              >
+                {speechSupported
+                  ? voiceEnabled
+                    ? 'Turn voice off'
+                    : 'Turn voice on'
+                  : 'Voice unavailable'}
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => speakDetail(true, modalDetail)}
+                disabled={!speechSupported || !voiceEnabled}
+              >
+                Replay narration
+              </button>
+              <button type="button" onClick={closeModal}>
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
-      <div className="host-id">
-        <div>
-          <p className="muted small">Host identifier</p>
-          <code>{hostIdentifier}</code>
-        </div>
-        <button className="ghost" onClick={onLockHost}>
-          Use a different host key
-        </button>
-      </div>
-      <div className="host-grid">
-        <div className="card host-main">
-          <NumberWheel gameState={gameState} spinning={spinning} />
-          <div className="host-actions">
-            <button onClick={startGame}>Start round</button>
-            <button onClick={drawNumber} disabled={gameState?.status !== 'IN_PROGRESS'}>
-              Draw next number
-            </button>
-            <button className="secondary" onClick={resetGame}>
-              Reset round
-            </button>
-          </div>
-          <label className="inline-toggle">
-            <input
-              type="checkbox"
-              checked={dropPlayers}
-              onChange={(event) => setDropPlayers(event.target.checked)}
-            />
-            Remove all players on reset
-          </label>
-          <p className="muted small">
-            Start &rarr; Draw to spin phrases. Reset clears the board; optional toggle wipes player cards.
-          </p>
-        </div>
-        <div className="card host-feed">
-          <h3>Called phrases ({gameState?.calledPhrases.length ?? 0})</h3>
-          <div className="called-grid">
-            {gameState && gameState.calledPhrases.length > 0 ? (
-              gameState.calledPhrases.map((value) => <span key={value}>{value}</span>)
-            ) : (
-              <p className="muted">Waiting for the first call...</p>
-            )}
-          </div>
-        </div>
-        <div className="card host-inspector">
-          <h3>Verify a card</h3>
-          <p className="muted small">
-            Look up any player to overlay their scorecard with the active call sheet. Pick the correct winning pattern
-            and log it for the record.
-          </p>
-          <div className="form-row form-row--stack">
-            <input
-              placeholder="Player ID"
-              value={inspectionId}
-              onChange={(event) => {
-                setInspectionId(event.target.value);
-                setInspectionMessage(null);
-                setInspectionError(null);
-              }}
-            />
-            <button onClick={loadPlayerForInspection}>Load card</button>
-          </div>
-          {inspectionMessage && (
-            <div className="alert alert--info" role="status">
-              {inspectionMessage}
-            </div>
-          )}
-          {inspectionError && (
-            <div className="alert alert--error" role="alert">
-              {inspectionError}
-            </div>
-          )}
-          {inspectedPlayer ? (
-            <>
-              <div className="host-inspector__meta">
-                <div>
-                  <p className="muted small">Player</p>
-                  <strong>{inspectedPlayer.displayName}</strong>
-                </div>
-                <div>
-                  <p className="muted small">Player ID</p>
-                  <code>{inspectedPlayer.playerId}</code>
-                </div>
-              </div>
-              {inspectedPlayer.scorecard ? (
-                <ScorecardGrid
-                  compact
-                  card={inspectedPlayer.scorecard}
-                  calledEntries={gameState?.calledPhrases}
-                />
-              ) : (
-                <p className="muted small">This player has not selected a scorecard yet.</p>
-              )}
-            </>
-          ) : (
-            <p className="muted small">Load a player to inspect their scorecard.</p>
-          )}
-          <div className="host-claim">
-            <label>
-              <span>Winning pattern</span>
-              <select
-                value={claimSelection}
-                onChange={(event) => setClaimSelection(event.target.value as ClaimType)}
-              >
-                {CLAIM_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button onClick={recordClaim} disabled={!inspectedPlayer?.scorecard}>
-              Record winner
-            </button>
-          </div>
-        </div>
-      </div>
-      <GameStats gameState={gameState} title="Round overview" />
-    </section>
+    </>
   );
 }
 

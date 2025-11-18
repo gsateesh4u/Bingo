@@ -19,6 +19,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -117,6 +118,22 @@ public class AccessPlayerRepository {
                 .orElseThrow(() -> new IllegalArgumentException("Unknown player id"));
         record.setScorecard(scorecard);
         save(record);
+    }
+
+    public synchronized List<PlayerRecord> listPlayers() {
+        try (Database database = openDatabase()) {
+            Table table = database.getTable(TABLE_NAME);
+            if (table == null) {
+                return List.of();
+            }
+            List<PlayerRecord> records = new ArrayList<>();
+            for (Row row : table) {
+                records.add(mapRow(row));
+            }
+            return records;
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to enumerate players in Access database", ex);
+        }
     }
 
     public synchronized void clearAllScorecards() {

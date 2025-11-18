@@ -354,6 +354,93 @@ button.ghost:hover:not(:disabled) {
   color: #fff;
 }
 
+.call-detail {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  text-align: left;
+  color: #f5f5f5;
+}
+
+.call-detail h4 {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+}
+
+.call-detail p {
+  margin: 0 0 0.75rem;
+  line-height: 1.4;
+}
+
+.call-detail__actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.audio-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 1000;
+}
+
+.modal__content {
+  position: relative;
+  width: min(520px, 100%);
+  background: linear-gradient(140deg, rgba(9, 64, 32, 0.98), rgba(124, 9, 9, 0.95));
+  color: #fff;
+  border-radius: 24px;
+  padding: 2rem;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.modal__close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+
+.modal__eyebrow {
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+  margin-bottom: 0.2rem;
+}
+
+.modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.2rem;
+  align-items: center;
+}
+
 .host-id {
   display: flex;
   justify-content: space-between;
@@ -398,6 +485,32 @@ button.ghost:hover:not(:disabled) {
   line-height: 1.2;
   color: #fff;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+}
+
+.called-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.info-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.info-btn:hover {
+  background: rgba(255, 255, 255, 0.35);
 }
 
 @media (max-width: 960px) {

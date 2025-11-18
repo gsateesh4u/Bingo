@@ -5,6 +5,7 @@ public class DrawNumberResponse extends GameStateResponse {
         super(
                 delegate.getStatus(),
                 delegate.getCurrentCall(),
+                delegate.getCurrentCallDetail(),
                 delegate.getCalledPhrases(),
                 delegate.getRemainingCalls(),
                 delegate.getPlayerCount(),

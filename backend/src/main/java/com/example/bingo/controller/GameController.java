@@ -5,9 +5,11 @@ import com.example.bingo.dto.ClaimResultResponse;
 import com.example.bingo.dto.CreatePlayerRequest;
 import com.example.bingo.dto.DrawNumberResponse;
 import com.example.bingo.dto.GameStateResponse;
+import com.example.bingo.dto.PlayerDirectoryResponse;
 import com.example.bingo.dto.PlayerResponse;
 import com.example.bingo.dto.ScorecardListResponse;
 import com.example.bingo.dto.SelectCardRequest;
+import com.example.bingo.model.KeywordInsight;
 import com.example.bingo.model.ClaimEvaluation;
 import com.example.bingo.model.PlayerState;
 import com.example.bingo.model.Scorecard;
@@ -47,8 +49,21 @@ public class GameController {
         return toResponse(player);
     }
 
+    @GetMapping("/players")
+    public PlayerDirectoryResponse listPlayers(@RequestHeader("X-Host-Key") String providedHostKey) {
+        assertHostAccess(providedHostKey);
+        return new PlayerDirectoryResponse(gameService.listDirectory());
+    }
+
     @GetMapping("/players/{playerId}")
     public PlayerResponse getPlayer(@PathVariable UUID playerId) {
+        return toResponse(gameService.getPlayer(playerId));
+    }
+
+    @GetMapping("/host/players/{playerId}")
+    public PlayerResponse getPlayerForHost(
+            @PathVariable UUID playerId, @RequestHeader("X-Host-Key") String providedHostKey) {
+        assertHostAccess(providedHostKey);
         return toResponse(gameService.getPlayer(playerId));
     }
 
@@ -69,6 +84,11 @@ public class GameController {
     @GetMapping("/game/state")
     public GameStateResponse getGameState() {
         return gameService.getCurrentState();
+    }
+
+    @GetMapping("/game/phrases/{value}/detail")
+    public KeywordInsight getPhraseDetail(@PathVariable String value) {
+        return gameService.describePhrase(value);
     }
 
     @PostMapping("/game/start")

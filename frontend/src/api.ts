@@ -1,4 +1,12 @@
-import { ClaimType, GameState, Player, Scorecard, Winner } from './types';
+import {
+  ClaimType,
+  GameState,
+  Player,
+  PlayerDirectoryResponse,
+  Scorecard,
+  Winner,
+  PhraseDetailResponse,
+} from './types';
 
 const API_BASE = process.env.REACT_APP_API_BASE ?? 'http://localhost:8080/api';
 
@@ -45,6 +53,14 @@ export const api = {
     }),
 
   getPlayer: (playerId: string) => request<Player>(`/players/${playerId}`),
+  getHostPlayer: (playerId: string, hostKey: string) =>
+    request<Player>(`/host/players/${playerId}`, {
+      headers: hostHeaders(hostKey),
+    }),
+  getPlayerDirectory: (hostKey: string) =>
+    request<PlayerDirectoryResponse>('/players', {
+      headers: hostHeaders(hostKey),
+    }),
 
   getScorecards: (count = 6) => request<{ scorecards: Scorecard[] }>(`/scorecards?count=${count}`),
 
@@ -80,4 +96,6 @@ export const api = {
       headers: hostHeaders(hostKey),
       body: JSON.stringify({ playerId, claimType }),
     }),
+
+  getPhraseDetail: (phrase: string) => request<PhraseDetailResponse>(`/game/phrases/${encodeURIComponent(phrase)}/detail`),
 };

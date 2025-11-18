@@ -1,9 +1,11 @@
 package com.example.bingo.service;
 
 import com.example.bingo.dto.GameStateResponse;
+import com.example.bingo.dto.PlayerDirectoryEntry;
 import com.example.bingo.model.ClaimEvaluation;
 import com.example.bingo.model.ClaimType;
 import com.example.bingo.model.GameStatus;
+import com.example.bingo.model.KeywordInsight;
 import com.example.bingo.model.PlayerState;
 import com.example.bingo.model.Scorecard;
 import com.example.bingo.model.Winner;
@@ -15,6 +17,7 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -36,6 +39,7 @@ public class GameService {
     private final SecureRandom random = new SecureRandom();
     private final KeywordRepository keywordRepository;
     private final AccessPlayerRepository playerRepository;
+    private final KeywordInsightService keywordInsightService;
     private final Map<UUID, PlayerState> players = new ConcurrentHashMap<>();
     private final Map<String, Scorecard> cardPool = new LinkedHashMap<>();
     private final Set<String> assignedCardFingerprints = new LinkedHashSet<>();
@@ -45,11 +49,16 @@ public class GameService {
 
     private GameStatus status = GameStatus.WAITING_FOR_HOST;
     private String currentCall;
+    private KeywordInsight currentCallDetail;
     private Instant startedAt;
 
-    public GameService(KeywordRepository keywordRepository, AccessPlayerRepository playerRepository) {
+    public GameService(
+            KeywordRepository keywordRepository,
+            AccessPlayerRepository playerRepository,
+            KeywordInsightService keywordInsightService) {
         this.keywordRepository = keywordRepository;
         this.playerRepository = playerRepository;
+        this.keywordInsightService = keywordInsightService;
     }
 
     @PostConstruct
@@ -140,6 +149,7 @@ public class GameService {
         status = GameStatus.IN_PROGRESS;
         startedAt = Instant.now();
         currentCall = null;
+        currentCallDetail = null;
         calledPhrases.clear();
         winners.clear();
         return snapshot();
@@ -148,6 +158,7 @@ public class GameService {
     public synchronized GameStateResponse resetGame(boolean dropPlayers) {
         status = GameStatus.WAITING_FOR_HOST;
         currentCall = null;
+        currentCallDetail = null;
         calledPhrases.clear();
         winners.clear();
         startedAt = null;
@@ -172,6 +183,7 @@ public class GameService {
             return snapshot();
         }
         currentCall = callQueue.removeFirst();
+        currentCallDetail = keywordInsightService.describe(currentCall);
         calledPhrases.add(currentCall);
         if (callQueue.isEmpty()) {
             status = GameStatus.COMPLETE;
@@ -235,6 +247,21 @@ public class GameService {
         return snapshot();
     }
 
+    public KeywordInsight describePhrase(String phrase) {
+        return keywordInsightService.describe(phrase);
+    }
+
+    public synchronized List<PlayerDirectoryEntry> listDirectory() {
+        return playerRepository.listPlayers().stream()
+                .map(record -> new PlayerDirectoryEntry(
+                        record.getPlayerId(),
+                        resolveDisplayName(record),
+                        players.containsKey(record.getPlayerId()),
+                        record.getScorecard() != null))
+                .sorted(Comparator.comparing(PlayerDirectoryEntry::getDisplayName, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+    }
+
     private PlayerState toPlayerState(PlayerRecord record) {
         if (!StringUtils.hasText(record.getDisplayName())) {
             throw new IllegalStateException("Player record is missing a display name");
@@ -290,6 +317,14 @@ public class GameService {
 
     private boolean hasWinner(ClaimType type) {
         return winners.stream().anyMatch(existing -> existing.getClaimType() == type);
+    }
+
+    private String resolveDisplayName(PlayerRecord record) {
+        if (StringUtils.hasText(record.getDisplayName())) {
+            return record.getDisplayName();
+        }
+        String id = record.getPlayerId().toString();
+        return "Player " + id.substring(0, 8).toUpperCase();
     }
 
     private void ensureCardPool(int desiredSize) {
@@ -397,6 +432,7 @@ public class GameService {
         return new GameStateResponse(
                 status,
                 currentCall,
+                currentCallDetail,
                 called,
                 callQueue.size(),
                 players.size(),

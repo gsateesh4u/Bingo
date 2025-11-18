@@ -20,7 +20,7 @@
 }
 
 .wheel__rim--spinning {
-  animation: spin 1.2s ease-out;
+  animation: spin 2.6s ease-out;
 }
 
 .wheel__value {
@@ -41,10 +41,10 @@
   0% {
     transform: rotate(0deg) scale(1);
   }
-  70% {
-    transform: rotate(420deg) scale(1.08);
+  85% {
+    transform: rotate(900deg) scale(1.08);
   }
   100% {
-    transform: rotate(450deg) scale(1);
+    transform: rotate(960deg) scale(1);
   }
 }
