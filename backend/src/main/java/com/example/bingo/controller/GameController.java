@@ -43,7 +43,7 @@ public class GameController {
 
     @PostMapping(path = "/players", consumes = MediaType.APPLICATION_JSON_VALUE)
     public PlayerResponse createPlayer(@Valid @RequestBody CreatePlayerRequest request) {
-        PlayerState player = gameService.registerPlayer(request.getDisplayName());
+        PlayerState player = gameService.registerPlayer(request.getPlayerId(), request.getDisplayName());
         return toResponse(player);
     }
 
@@ -92,7 +92,10 @@ public class GameController {
     }
 
     @PostMapping(path = "/game/claim", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ClaimResultResponse claim(@Valid @RequestBody ClaimRequest request) {
+    public ClaimResultResponse claim(
+            @Valid @RequestBody ClaimRequest request,
+            @RequestHeader("X-Host-Key") String providedHostKey) {
+        assertHostAccess(providedHostKey);
         ClaimEvaluation evaluation = gameService.claimWin(request.getPlayerId(), request.getClaimType());
         return new ClaimResultResponse(evaluation.isAccepted(), evaluation.getMessage(), evaluation.getWinners());
     }

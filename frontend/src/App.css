@@ -319,6 +319,41 @@ button.ghost:hover:not(:disabled) {
   gap: 1rem;
 }
 
+.host-inspector .form-row--stack {
+  align-items: stretch;
+}
+
+.host-inspector__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+}
+
+.host-claim {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin-top: 1rem;
+}
+
+.host-claim label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.host-claim select {
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.2);
+  color: #fff;
+}
+
 .host-id {
   display: flex;
   justify-content: space-between;

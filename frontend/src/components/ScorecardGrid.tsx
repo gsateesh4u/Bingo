@@ -36,6 +36,7 @@ export function ScorecardGrid({
           const isFree = value === FREE_SPACE_TEXT;
           const isCalled = calledSet.has(value) || isFree;
           const marked = markedEntries?.has(value) ?? false;
+          const canToggle = isInteractive && (isCalled || isFree);
           const classes = [
             'scorecard__cell',
             isFree ? 'scorecard__cell--free' : '',
@@ -50,10 +51,15 @@ export function ScorecardGrid({
               key={key}
               type="button"
               className={classes}
-              onClick={() => onToggle?.(value)}
-              disabled={!isInteractive}
+              onClick={() => {
+                if (!canToggle) {
+                  return;
+                }
+                onToggle?.(value);
+              }}
+              disabled={!canToggle}
             >
-              <span className="scorecard__cell-text">{isFree ? '★ FREE' : value}</span>
+              <span className="scorecard__cell-text">{isFree ? 'FREE' : value}</span>
             </button>
           );
         })

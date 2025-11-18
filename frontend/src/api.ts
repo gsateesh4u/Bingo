@@ -1,4 +1,4 @@
-import { ClaimType, GameState, Player, Scorecard } from './types';
+import { ClaimType, GameState, Player, Scorecard, Winner } from './types';
 
 const API_BASE = process.env.REACT_APP_API_BASE ?? 'http://localhost:8080/api';
 
@@ -38,10 +38,10 @@ async function safeMessage(response: Response) {
 }
 
 export const api = {
-  createPlayer: (displayName?: string) =>
+  createPlayer: (playerId: string, displayName?: string) =>
     request<Player>('/players', {
       method: 'POST',
-      body: JSON.stringify({ displayName }),
+      body: JSON.stringify({ playerId, displayName }),
     }),
 
   getPlayer: (playerId: string) => request<Player>(`/players/${playerId}`),
@@ -74,9 +74,10 @@ export const api = {
       headers: hostHeaders(hostKey),
     }),
 
-  claimWin: (playerId: string, claimType: ClaimType) =>
-    request<{ accepted: boolean; message: string }>('/game/claim', {
+  claimWin: (playerId: string, claimType: ClaimType, hostKey: string) =>
+    request<{ accepted: boolean; message: string; winners: Winner[] }>('/game/claim', {
       method: 'POST',
+      headers: hostHeaders(hostKey),
       body: JSON.stringify({ playerId, claimType }),
     }),
 };

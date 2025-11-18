@@ -1,4 +1,14 @@
-export type ClaimType = 'ROW' | 'COLUMN' | 'DIAGONAL' | 'FULL_CARD';
+export type ClaimType =
+  | 'ROW'
+  | 'COLUMN'
+  | 'COLUMN_1'
+  | 'COLUMN_2'
+  | 'COLUMN_3'
+  | 'DIAGONAL'
+  | 'FULL_CARD'
+  | 'FULL_CARD_FIRST'
+  | 'FULL_CARD_SECOND'
+  | 'FULL_CARD_THIRD';
 
 export interface Scorecard {
   id: string;

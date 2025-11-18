@@ -7,6 +7,8 @@ import com.example.bingo.model.GameStatus;
 import com.example.bingo.model.PlayerState;
 import com.example.bingo.model.Scorecard;
 import com.example.bingo.model.Winner;
+import com.example.bingo.repository.AccessPlayerRepository;
+import com.example.bingo.repository.PlayerRecord;
 import jakarta.annotation.PostConstruct;
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -18,7 +20,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,6 +35,7 @@ public class GameService {
 
     private final SecureRandom random = new SecureRandom();
     private final KeywordRepository keywordRepository;
+    private final AccessPlayerRepository playerRepository;
     private final Map<UUID, PlayerState> players = new ConcurrentHashMap<>();
     private final Map<String, Scorecard> cardPool = new LinkedHashMap<>();
     private final Set<String> assignedCardFingerprints = new LinkedHashSet<>();
@@ -45,8 +47,9 @@ public class GameService {
     private String currentCall;
     private Instant startedAt;
 
-    public GameService(KeywordRepository keywordRepository) {
+    public GameService(KeywordRepository keywordRepository, AccessPlayerRepository playerRepository) {
         this.keywordRepository = keywordRepository;
+        this.playerRepository = playerRepository;
     }
 
     @PostConstruct
@@ -54,18 +57,52 @@ public class GameService {
         resetGame(true);
     }
 
-    public synchronized PlayerState registerPlayer(String requestedName) {
-        String displayName = StringUtils.hasText(requestedName)
-                ? requestedName.trim()
-                : "Player-" + (players.size() + 1);
-        PlayerState player = new PlayerState(UUID.randomUUID(), displayName, Instant.now());
+    public synchronized PlayerState registerPlayer(UUID playerId, String requestedName) {
+        PlayerState existing = players.get(playerId);
+        if (existing != null) {
+            return existing;
+        }
+        PlayerRecord record = playerRepository.findById(playerId)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown player id"));
+        boolean mutated = false;
+        if (!StringUtils.hasText(record.getDisplayName())) {
+            if (!StringUtils.hasText(requestedName)) {
+                throw new IllegalArgumentException("Display name required the first time you join the game");
+            }
+            record.setDisplayName(requestedName.trim());
+            mutated = true;
+        }
+        if (record.getJoinedAt() == null) {
+            record.setJoinedAt(Instant.now());
+            mutated = true;
+        }
+        if (mutated) {
+            playerRepository.save(record);
+        }
+        PlayerState player = toPlayerState(record);
         players.put(player.getId(), player);
+        if (player.getScorecard() != null) {
+            assignedCardFingerprints.add(player.getScorecard().fingerprint());
+        }
         return player;
     }
 
     public synchronized PlayerState getPlayer(UUID playerId) {
-        return Optional.ofNullable(players.get(playerId))
+        PlayerState existing = players.get(playerId);
+        if (existing != null) {
+            return existing;
+        }
+        PlayerRecord record = playerRepository.findById(playerId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown player id"));
+        if (!StringUtils.hasText(record.getDisplayName())) {
+            throw new IllegalArgumentException("Player has not completed registration");
+        }
+        PlayerState player = toPlayerState(record);
+        players.put(player.getId(), player);
+        if (player.getScorecard() != null) {
+            assignedCardFingerprints.add(player.getScorecard().fingerprint());
+        }
+        return player;
     }
 
     public synchronized List<Scorecard> previewScorecards(int count) {
@@ -77,6 +114,9 @@ public class GameService {
 
     public synchronized PlayerState assignScorecard(UUID playerId, String scorecardId) {
         PlayerState player = getPlayer(playerId);
+        if (status == GameStatus.IN_PROGRESS && player.getScorecard() != null) {
+            throw new IllegalStateException("The round already started, scorecards are locked");
+        }
         Scorecard card = cardPool.remove(scorecardId);
         if (card == null) {
             throw new IllegalArgumentException("Scorecard already taken, please pick another");
@@ -86,6 +126,7 @@ public class GameService {
         }
         player.setScorecard(card);
         assignedCardFingerprints.add(card.fingerprint());
+        playerRepository.saveScorecard(player.getId(), card);
         return player;
     }
 
@@ -112,6 +153,7 @@ public class GameService {
         startedAt = null;
         cardPool.clear();
         assignedCardFingerprints.clear();
+        playerRepository.clearAllScorecards();
         refillCallQueue();
         if (dropPlayers) {
             players.clear();
@@ -146,11 +188,17 @@ public class GameService {
         boolean matches = switch (type) {
             case ROW -> hasAnyRowComplete(card);
             case COLUMN -> hasAnyColumnComplete(card);
+            case COLUMN_1 -> hasColumnComplete(card, 0);
+            case COLUMN_2 -> hasColumnComplete(card, 1);
+            case COLUMN_3 -> hasColumnComplete(card, 2);
             case DIAGONAL -> hasDiagonalComplete(card);
-            case FULL_CARD -> hasFullCard(card);
+            case FULL_CARD, FULL_CARD_FIRST, FULL_CARD_SECOND, FULL_CARD_THIRD -> hasFullCard(card);
         };
         if (!matches) {
-            return new ClaimEvaluation(false, "Squares not complete for this pattern", List.copyOf(winners));
+            return new ClaimEvaluation(
+                    false,
+                    "Squares not complete for the %s pattern".formatted(describeClaim(type)),
+                    List.copyOf(winners));
         }
         boolean duplicateClaim = winners.stream()
                 .anyMatch(existing -> existing.getPlayerId().equals(playerId) && existing.getClaimType() == type);
@@ -164,6 +212,11 @@ public class GameService {
             if (alreadyAwarded >= MAX_FULL_CARD_WINNERS) {
                 return new ClaimEvaluation(false, "Three full-card winners already recorded", List.copyOf(winners));
             }
+        } else if (isRankedFullCard(type)) {
+            String violation = validateRankedFullCard(type);
+            if (violation != null) {
+                return new ClaimEvaluation(false, violation, List.copyOf(winners));
+            }
         }
         Winner winner = new Winner(player.getId(), player.getDisplayName(), type, Instant.now());
         winners.add(winner);
@@ -172,11 +225,71 @@ public class GameService {
                 .count() >= MAX_FULL_CARD_WINNERS) {
             status = GameStatus.COMPLETE;
         }
+        if (type == ClaimType.FULL_CARD_THIRD) {
+            status = GameStatus.COMPLETE;
+        }
         return new ClaimEvaluation(true, "Claim accepted", List.copyOf(winners));
     }
 
     public synchronized GameStateResponse getCurrentState() {
         return snapshot();
+    }
+
+    private PlayerState toPlayerState(PlayerRecord record) {
+        if (!StringUtils.hasText(record.getDisplayName())) {
+            throw new IllegalStateException("Player record is missing a display name");
+        }
+        Instant joinedAt = record.getJoinedAt() == null ? Instant.now() : record.getJoinedAt();
+        PlayerState player = new PlayerState(record.getPlayerId(), record.getDisplayName(), joinedAt);
+        player.setScorecard(record.getScorecard());
+        return player;
+    }
+
+    private String describeClaim(ClaimType type) {
+        return switch (type) {
+            case ROW -> "row";
+            case COLUMN -> "column";
+            case COLUMN_1 -> "first column";
+            case COLUMN_2 -> "second column";
+            case COLUMN_3 -> "third column";
+            case DIAGONAL -> "diagonal";
+            case FULL_CARD -> "full card";
+            case FULL_CARD_FIRST -> "full card (first winner)";
+            case FULL_CARD_SECOND -> "full card (second winner)";
+            case FULL_CARD_THIRD -> "full card (third winner)";
+        };
+    }
+
+    private boolean isRankedFullCard(ClaimType type) {
+        return type == ClaimType.FULL_CARD_FIRST
+                || type == ClaimType.FULL_CARD_SECOND
+                || type == ClaimType.FULL_CARD_THIRD;
+    }
+
+    private String validateRankedFullCard(ClaimType type) {
+        boolean firstRecorded = hasWinner(ClaimType.FULL_CARD_FIRST);
+        boolean secondRecorded = hasWinner(ClaimType.FULL_CARD_SECOND);
+        boolean thirdRecorded = hasWinner(ClaimType.FULL_CARD_THIRD);
+        return switch (type) {
+            case FULL_CARD_FIRST -> firstRecorded ? "First full-card winner already recorded" : null;
+            case FULL_CARD_SECOND -> {
+                if (!firstRecorded) {
+                    yield "Record the first full-card winner before the second";
+                }
+                yield secondRecorded ? "Second full-card winner already recorded" : null;
+            }
+            case FULL_CARD_THIRD -> {
+                if (!firstRecorded || !secondRecorded) {
+                    yield "Record the first and second full-card winners before the third";
+                }
+                yield thirdRecorded ? "Third full-card winner already recorded" : null;
+            }
+            default -> null;
+        };
+    }
+
+    private boolean hasWinner(ClaimType type) {
+        return winners.stream().anyMatch(existing -> existing.getClaimType() == type);
     }
 
     private void ensureCardPool(int desiredSize) {
@@ -227,6 +340,18 @@ public class GameService {
             }
         }
         return false;
+    }
+
+    private boolean hasColumnComplete(Scorecard card, int columnIndex) {
+        if (columnIndex < 0 || columnIndex >= card.getSize()) {
+            return false;
+        }
+        for (int row = 0; row < card.getSize(); row++) {
+            if (!isMarked(card.getValue(row, columnIndex))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean hasDiagonalComplete(Scorecard card) {

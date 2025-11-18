@@ -10,6 +10,29 @@ const PLAYER_STORAGE_KEY = 'team-bingo-player-id';
 const HOST_ACCESS_STORAGE_KEY = 'team-bingo-host-access';
 const HOST_ACCESS_KEY = process.env.REACT_APP_HOST_ACCESS_KEY ?? 'TEAM-HOST-KEY';
 const HOST_IDENTIFIER = process.env.REACT_APP_HOST_IDENTIFIER ?? 'HOST-LEAD-001';
+const CLAIM_OPTIONS: { value: ClaimType; label: string }[] = [
+  { value: 'DIAGONAL', label: 'Diagonal' },
+  { value: 'COLUMN_1', label: 'First column' },
+  { value: 'COLUMN_2', label: 'Second column' },
+  { value: 'COLUMN_3', label: 'Third column' },
+  { value: 'FULL_CARD_FIRST', label: 'Full card (first winner)' },
+  { value: 'FULL_CARD_SECOND', label: 'Full card (second winner)' },
+  { value: 'FULL_CARD_THIRD', label: 'Full card (third winner)' },
+];
+const CLAIM_LABELS: Record<ClaimType, string> = {
+  ROW: 'Row',
+  COLUMN: 'Column',
+  COLUMN_1: 'First column',
+  COLUMN_2: 'Second column',
+  COLUMN_3: 'Third column',
+  DIAGONAL: 'Diagonal',
+  FULL_CARD: 'Full card',
+  FULL_CARD_FIRST: 'Full card (first winner)',
+  FULL_CARD_SECOND: 'Full card (second winner)',
+  FULL_CARD_THIRD: 'Full card (third winner)',
+};
+
+const formatClaimLabel = (type: ClaimType) => CLAIM_LABELS[type] ?? type.replaceAll('_', ' ');
 
 export default function App() {
   const [mode, setMode] = useState<Mode>('player');
@@ -133,15 +156,21 @@ function PlayerView() {
   }, [playerId]);
 
   const joinGame = async () => {
+    const trimmedId = playerIdInput.trim();
+    if (!trimmedId) {
+      setError('Enter the player ID provided by your host to continue.');
+      return;
+    }
     try {
       setLoading(true);
-      const created = await api.createPlayer(displayNameInput || undefined);
+      const created = await api.createPlayer(trimmedId, displayNameInput || undefined);
       localStorage.setItem(PLAYER_STORAGE_KEY, created.playerId);
       setPlayerId(created.playerId);
       setPlayerIdInput(created.playerId);
       setPlayer(created);
       setMessage(`Welcome ${created.displayName}! Pick a scorecard to get started.`);
       setDisplayNameInput('');
+      setError(null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -150,6 +179,10 @@ function PlayerView() {
   };
 
   const showCards = async () => {
+    if (gameState?.status === 'IN_PROGRESS') {
+      setError('Scorecards are locked because the round is in progress.');
+      return;
+    }
     try {
       const result = await api.getScorecards();
       setAvailableCards(result.scorecards);
@@ -162,6 +195,10 @@ function PlayerView() {
 
   const selectCard = async (cardId: string) => {
     if (!playerId) return;
+    if (gameState?.status === 'IN_PROGRESS') {
+      setError('Scorecards are locked because the round already started.');
+      return;
+    }
     try {
       const updated = await api.selectScorecard(playerId, cardId);
       setPlayer(updated);
@@ -186,7 +223,9 @@ function PlayerView() {
   };
 
   const toggleEntry = (value: string) => {
-    if (value === FREE_SPACE_TEXT) return;
+    if (value !== FREE_SPACE_TEXT && !gameState?.calledPhrases?.includes(value)) {
+      return;
+    }
     setMarkedEntries((prev) => {
       const next = new Set(prev);
       if (next.has(value)) {
@@ -207,17 +246,6 @@ function PlayerView() {
   };
 
   const currentPreview = availableCards[previewIndex];
-
-  const sendClaim = async (type: ClaimType) => {
-    if (!playerId) return;
-    try {
-      const result = await api.claimWin(playerId, type);
-      setMessage(result.message);
-      refreshGameState();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
 
   const joined = Boolean(playerId);
   const hasCard = Boolean(player?.scorecard);
@@ -240,16 +268,24 @@ function PlayerView() {
       )}
       {!joined && (
         <div className="card">
-          <h3>Claim your seat</h3>
-          <p>Enter an optional display name so the host can recognize you.</p>
-          <div className="form-row">
+          <h3>Use your assigned ID</h3>
+          <p className="muted">
+            The host shared a UUID from the Access roster. Paste it below and add a display name the first time you sign
+            in.
+          </p>
+          <div className="form-row form-row--stack">
             <input
-              placeholder="Display name"
+              placeholder="Player ID (UUID)"
+              value={playerIdInput}
+              onChange={(event) => setPlayerIdInput(event.target.value)}
+            />
+            <input
+              placeholder="Display name (optional)"
               value={displayNameInput}
               onChange={(event) => setDisplayNameInput(event.target.value)}
             />
             <button onClick={joinGame} disabled={loading}>
-              Get my player ID
+              Join game
             </button>
           </div>
         </div>
@@ -259,7 +295,9 @@ function PlayerView() {
         <>
           <div className="card">
             <h3>Your player ID</h3>
-            <p className="muted small">Paste your ID here to switch devices or reload your state.</p>
+            <p className="muted small">
+              Keep this ID handy for switching devices or proving your spot in the roster.
+            </p>
             <div className="form-row form-row--stack">
               <input
                 value={playerIdInput}
@@ -280,7 +318,7 @@ function PlayerView() {
                 </div>
               </div>
             )}
-            <button className="secondary" onClick={showCards}>
+            <button className="secondary" onClick={showCards} disabled={gameState?.status === 'IN_PROGRESS'}>
               Show random scorecards
             </button>
           </div>
@@ -334,14 +372,9 @@ function PlayerView() {
                 onToggle={toggleEntry}
               />
               <p className="muted small">
-                Tap a square when you hear it. Called phrases glow automatically, and the center is always free.
+                Tap a square only after the host calls it&mdash;other squares stay locked. When you spot a winning
+                pattern, let the host know so they can verify and record it.
               </p>
-              <div className="claim-controls">
-                <button onClick={() => sendClaim('ROW')}>Row</button>
-                <button onClick={() => sendClaim('COLUMN')}>Column</button>
-                <button onClick={() => sendClaim('DIAGONAL')}>Diagonal</button>
-                <button onClick={() => sendClaim('FULL_CARD')}>Full card</button>
-              </div>
             </div>
           )}
         </>
@@ -363,6 +396,11 @@ function HostView({ hostIdentifier, hostSecret, onLockHost }: HostViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [spinning, setSpinning] = useState(false);
   const [dropPlayers, setDropPlayers] = useState(false);
+  const [inspectionId, setInspectionId] = useState('');
+  const [inspectedPlayer, setInspectedPlayer] = useState<Player | null>(null);
+  const [inspectionMessage, setInspectionMessage] = useState<string | null>(null);
+  const [inspectionError, setInspectionError] = useState<string | null>(null);
+  const [claimSelection, setClaimSelection] = useState<ClaimType>('DIAGONAL');
 
   const refresh = useCallback(async () => {
     try {
@@ -407,8 +445,51 @@ function HostView({ hostIdentifier, hostSecret, onLockHost }: HostViewProps) {
       const state = await api.resetGame(dropPlayers, hostSecret);
       setGameState(state);
       setError(null);
+      setInspectedPlayer(null);
+      setInspectionMessage(null);
+      setInspectionError(null);
+      setClaimSelection('DIAGONAL');
+      setInspectionId('');
     } catch (err) {
       setError((err as Error).message);
+    }
+  };
+
+  const loadPlayerForInspection = async () => {
+    const trimmed = inspectionId.trim();
+    if (!trimmed) {
+      setInspectionError('Enter a player ID to inspect.');
+      return;
+    }
+    try {
+      const player = await api.getPlayer(trimmed);
+      setInspectedPlayer(player);
+      setInspectionMessage(`Loaded ${player.displayName}'s card.`);
+      setInspectionError(null);
+    } catch (err) {
+      setInspectionError((err as Error).message);
+      setInspectionMessage(null);
+      setInspectedPlayer(null);
+    }
+  };
+
+  const recordClaim = async () => {
+    const trimmed = inspectionId.trim();
+    if (!trimmed) {
+      setInspectionError('Load a player before recording a win.');
+      return;
+    }
+    if (!inspectedPlayer?.scorecard) {
+      setInspectionError('This player does not have a scorecard yet.');
+      return;
+    }
+    try {
+      const result = await api.claimWin(trimmed, claimSelection, hostSecret);
+      setInspectionMessage(result.message);
+      setInspectionError(null);
+      await refresh();
+    } catch (err) {
+      setInspectionError((err as Error).message);
     }
   };
 
@@ -416,7 +497,7 @@ function HostView({ hostIdentifier, hostSecret, onLockHost }: HostViewProps) {
     <section className="panel">
       <div className="panel__header">
         <h2>Host controls</h2>
-        <p>Launch the wheel, call phrases, and keep track of the first three full-card winners.</p>
+        <p>Launch the wheel, call phrases, and verify every winner against the Access roster.</p>
       </div>
       {error && (
         <div className="alert alert--error" role="alert">
@@ -464,6 +545,78 @@ function HostView({ hostIdentifier, hostSecret, onLockHost }: HostViewProps) {
             ) : (
               <p className="muted">Waiting for the first call...</p>
             )}
+          </div>
+        </div>
+        <div className="card host-inspector">
+          <h3>Verify a card</h3>
+          <p className="muted small">
+            Look up any player to overlay their scorecard with the active call sheet. Pick the correct winning pattern
+            and log it for the record.
+          </p>
+          <div className="form-row form-row--stack">
+            <input
+              placeholder="Player ID"
+              value={inspectionId}
+              onChange={(event) => {
+                setInspectionId(event.target.value);
+                setInspectionMessage(null);
+                setInspectionError(null);
+              }}
+            />
+            <button onClick={loadPlayerForInspection}>Load card</button>
+          </div>
+          {inspectionMessage && (
+            <div className="alert alert--info" role="status">
+              {inspectionMessage}
+            </div>
+          )}
+          {inspectionError && (
+            <div className="alert alert--error" role="alert">
+              {inspectionError}
+            </div>
+          )}
+          {inspectedPlayer ? (
+            <>
+              <div className="host-inspector__meta">
+                <div>
+                  <p className="muted small">Player</p>
+                  <strong>{inspectedPlayer.displayName}</strong>
+                </div>
+                <div>
+                  <p className="muted small">Player ID</p>
+                  <code>{inspectedPlayer.playerId}</code>
+                </div>
+              </div>
+              {inspectedPlayer.scorecard ? (
+                <ScorecardGrid
+                  compact
+                  card={inspectedPlayer.scorecard}
+                  calledEntries={gameState?.calledPhrases}
+                />
+              ) : (
+                <p className="muted small">This player has not selected a scorecard yet.</p>
+              )}
+            </>
+          ) : (
+            <p className="muted small">Load a player to inspect their scorecard.</p>
+          )}
+          <div className="host-claim">
+            <label>
+              <span>Winning pattern</span>
+              <select
+                value={claimSelection}
+                onChange={(event) => setClaimSelection(event.target.value as ClaimType)}
+              >
+                {CLAIM_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button onClick={recordClaim} disabled={!inspectedPlayer?.scorecard}>
+              Record winner
+            </button>
           </div>
         </div>
       </div>
@@ -523,6 +676,7 @@ function GameStats({ gameState, title }: GameStatsProps) {
       winners.map((winner) => ({
         ...winner,
         time: new Date(winner.timestamp).toLocaleTimeString(),
+        label: formatClaimLabel(winner.claimType),
       })),
     [winners]
   );
@@ -551,7 +705,7 @@ function GameStats({ gameState, title }: GameStatsProps) {
           <ul>
             {formattedWinners.map((winner) => (
               <li key={`${winner.playerId}-${winner.claimType}-${winner.timestamp}`}>
-                <strong>{winner.displayName}</strong> - {winner.claimType.replaceAll('_', ' ')} at {winner.time}
+                <strong>{winner.displayName}</strong> - {winner.label} at {winner.time}
               </li>
             ))}
           </ul>
